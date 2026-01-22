@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Envoyer des SMS (mock)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 2rem auto; padding: 1rem; }
+    .recipients { display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap:wrap; }
+    .recipient { border: 1px solid #ddd; padding: 0.5rem; border-radius: 6px; min-width: 160px; }
+    textarea { width: 100%; height: 100px; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; }
+    .messages { margin-top: 1.5rem; }
+    .msg { border-bottom: 1px solid #eee; padding: 0.5rem 0; }
+    .status { font-weight: bold; margin-left: 0.5rem; }
+    .small { font-size:0.9rem; color:#666; }
+  </style>
+</head>
+<body>
+  <h1>Envoyer un message (simulation)</h1>
+
+  <div>
+    <strong>Destinataires :</strong>
+    <div id="recipients" class="recipients">Chargement...</div>
+  </div>
+
+  <div style="margin-top:0.5rem;">
+    <label for="message">Message :</label>
+    <textarea id="message" placeholder="Tape ton message ici..."></textarea>
+  </div>
+
+  <div style="margin-top:0.5rem;">
+    <button id="sendBtn">Envoyer</button>
+  </div>
+
+  <section class="messages">
+    <h2>Historique des messages</h2>
+    <div id="messagesList">Chargement...</div>
+  </section>
+
+  <script>
+    async function fetchJSON(url, opts) {
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText);
+      }
+      return res.json();
+    }
+
+    function escapeHtml(s) {
+      return s
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    async function loadRecipients() {
+      const recipients = await fetchJSON('api.php?action=recipients');
+      const container = document.getElementById('recipients');
+      container.innerHTML = '';
+      recipients.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'recipient';
+        div.innerHTML = `
+          <label>
+            <input type="checkbox" data-id="${r.id}" /> <strong>${r.name}</strong><br/>
+            <small class="small">${r.phone}</small>
+          </label>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function loadMessages() {
+      const messages = await fetchJSON('api.php?action=messages');
+      const el = document.getElementById('messagesList');
+      if (!messages || messages.length === 0) {
+        el.innerText = 'Aucun message pour l\'instant.';
+        return;
+      }
+      el.innerHTML = messages.map(m => `
+        <div class="msg">
+          <div><strong>${escapeHtml(m.toName)}</strong> (${escapeHtml(m.toPhone)}) <span class="status">[${escapeHtml(m.status)}]</span></div>
+          <div>${escapeHtml(m.message)}</div>
+          <div class="small">${new Date(m.created_at).toLocaleString()}</div>
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('sendBtn').addEventListener('click', async () => {
+      const checked = Array.from(document.querySelectorAll('#recipients input[type=checkbox]:checked'))
+        .map(cb => parseInt(cb.getAttribute('data-id')));
+      const message = document.getElementById('message').value.trim();
+      if (checked.length === 0) return alert('Sélectionne au moins un destinataire.');
+      if (!message) return alert('Tape un message.');
+
+      try {
+        document.getElementById('sendBtn').disabled = true;
+        const res = await fetchJSON('api.php?action=send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recipientIds: checked, message })
+        });
+        document.getElementById('message').value = '';
+        await loadMessages();
+        alert('Message stocké pour les destinataires sélectionnés.');
+      } catch (err) {
+        alert('Erreur: ' + err.message);
+      } finally {
+        document.getElementById('sendBtn').disabled = false;
+      }
+    });
+
+    (async function init(){
+      try {
+        await loadRecipients();
+        await loadMessages();
+        setInterval(loadMessages, 10000);
+      } catch (err) {
+        console.error(err);
+        document.getElementById('messagesList').innerText = 'Erreur chargement.';
+      }
+    })();
+  </script>
+</body>
+</html>
